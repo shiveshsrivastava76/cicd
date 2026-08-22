@@ -1,0 +1,174 @@
+name: Terraform CI
+
+on:
+  push:
+    branches:
+      - featurebranch
+      - main
+
+permissions:
+  id-token: write
+  contents: write
+  pull-requests: write
+
+jobs:
+
+  # ============================================================
+  # JOB 1: Terraform checks + Plan
+  # Runs on featurebranch
+  # ============================================================
+  terraform-plan:
+
+    if: github.ref == 'refs/heads/featurebranch'
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # 1. Checkout
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 2. Azure Login
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: 553d2514-2252-43ed-834b-12ac347f9755
+          tenant-id: 4b9cff3a-07ab-4d9d-945d-df704d1808d4
+          subscription-id: 32befec2-21d4-498b-a715-32aa460c0a9d
+
+      # 3. Setup Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # 4. Terraform Version
+      - name: Terraform Version
+        run: terraform version
+
+      # 5. Security Scan
+      - name: Terraform Security Scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+
+      # 6. Terraform Init
+      - name: Terraform Init
+        run: terraform init
+
+      # 7. Format Check
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      # 8. Validate
+      - name: Terraform Validate
+        run: terraform validate
+
+      # 9. Plan
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+
+      # 10. Upload Plan
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: tfplan
+
+
+  # ============================================================
+  # JOB 2: Manual approval AFTER Plan
+  # ============================================================
+  plan-approval:
+
+    needs: terraform-plan
+
+    runs-on: ubuntu-latest
+
+    environment:
+      name: plan-approval
+
+    steps:
+
+      - name: Plan Approved
+        run: echo "Terraform plan approved. Creating Pull Request."
+
+
+  # ============================================================
+  # JOB 3: Automatically create PR
+  # ============================================================
+  create-pull-request:
+
+    needs: plan-approval
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Create Pull Request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+
+          EXISTING_PR=$(gh pr list \
+            --base main \
+            --head featurebranch \
+            --state open \
+            --json number \
+            --jq '.[0].number')
+
+          if [ -n "$EXISTING_PR" ]; then
+            echo "Pull Request #$EXISTING_PR already exists."
+          else
+            gh pr create \
+              --base main \
+              --head featurebranch \
+              --title "Terraform Infrastructure Changes" \
+              --body "Automated PR created after Terraform Plan approval."
+          fi
+
+
+  # ============================================================
+  # JOB 4: CI validation on main after PR merge
+  # ============================================================
+  terraform-main:
+
+    if: github.ref == 'refs/heads/main'
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # 1. Checkout
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 2. Azure Login
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: 6656127f-84b1-4863-8607-48501595f57a
+          tenant-id: "4b9cff3a-07ab-4d9d-945d-df704d1808d4"
+          subscription-id: "32befec2-21d4-498b-a715-32aa460c0a9d"
+
+      # 3. Setup Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      # 4. Terraform Init
+      - name: Terraform Init
+        run: terraform init
+
+      # 5. Format
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+      # 6. Validate
+      - name: Terraform Validate
+        run: terraform validate
+
+      # 7. Final Plan
+      - name: Terraform Plan
+        run: terraform plan
