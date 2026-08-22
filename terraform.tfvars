@@ -11,5 +11,9 @@ rgs = {
     name     = "git_rg3"
     location = "eastus"
   }
+  rg4 = {
+    name     = "git_rg4"
+    location = "eastus"
+  }
   
   }
