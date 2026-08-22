@@ -7,5 +7,9 @@ rgs = {
     name     = "git_rg2"
     location = "eastus"
   }
+  rg3 = {
+    name     = "git_rg3"
+    location = "eastus"
+  }
   
   }
